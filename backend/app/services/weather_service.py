@@ -1,93 +1,100 @@
+import os
 import httpx
 import logging
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-async def fetch_coordinates(location: str) -> Optional[Dict[str, float]]:
-    """Fetches latitude and longitude for a given location name using Open-Meteo Geocoding API."""
-    url = f"https://geocoding-api.open-meteo.com/v1/search?name={location}&count=1&language=en&format=json"
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(url)
-            if response.status_code == 200:
-                data = response.json()
-                results = data.get("results")
-                if results and len(results) > 0:
-                    first_match = results[0]
-                    return {
-                        "lat": float(first_match["latitude"]),
-                        "lon": float(first_match["longitude"]),
-                        "name": first_match.get("name", location),
-                        "country": first_match.get("country", "")
-                    }
-    except Exception as e:
-        logger.error(f"Geocoding failed for {location}: {str(e)}")
-    return None
-
 async def get_weather_data(location: str) -> Dict[str, Any]:
-    """Retrieves 7-day weather forecast from Open-Meteo API using geocoded coordinates."""
-    # Default coordinates (Hyderabad) if geocoding fails
+    """Retrieves current weather and forecast from OpenWeather API using the configured key."""
+    # Default coordinates (Hyderabad) if resolving fails
     lat, lon = 17.3850, 78.4867
     resolved_name = "Hyderabad"
     
-    geo_data = await fetch_coordinates(location)
-    if geo_data:
-        lat = geo_data["lat"]
-        lon = geo_data["lon"]
-        resolved_name = f"{geo_data['name']}, {geo_data['country']}" if geo_data.get("country") else geo_data["name"]
-    else:
-        logger.warning(f"Using default coordinates for {location} (Hyderabad).")
-        resolved_name = f"{location} (Using Default Location)"
-
-    # Query Open-Meteo API
-    weather_url = (
-        f"https://api.open-meteo.com/v1/forecast?"
-        f"latitude={lat}&longitude={lon}"
-        f"&current=temperature_2m,relative_humidity_2m,wind_speed_10m"
-        f"&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max"
-        f"&timezone=auto"
-    )
+    api_key = os.environ.get("OPENWEATHER_API_KEY", "")
     
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(weather_url)
-            if response.status_code == 200:
-                w_data = response.json()
-                current = w_data.get("current", {})
-                daily = w_data.get("daily", {})
+            # 1. Fetch current weather to get latest conditions and coordinates
+            current_url = "https://api.openweathermap.org/data/2.5/weather"
+            current_response = await client.get(
+                current_url,
+                params={"q": location, "appid": api_key, "units": "metric"}
+            )
+            
+            if current_response.status_code == 200:
+                current_data = current_response.json()
+                lat = current_data.get("coord", {}).get("lat", lat)
+                lon = current_data.get("coord", {}).get("lon", lon)
+                resolved_name = f"{current_data.get('name')}, {current_data.get('sys', {}).get('country')}" if current_data.get('sys', {}).get('country') else current_data.get('name', location)
                 
-                # Format current data
-                current_temp = current.get("temperature_2m", 28.0)
-                current_humidity = current.get("relative_humidity_2m", 60.0)
-                current_wind = current.get("wind_speed_10m", 12.0)
+                current_temp = current_data.get("main", {}).get("temp", 28.0)
+                current_humidity = current_data.get("main", {}).get("humidity", 60.0)
+                current_wind_mps = current_data.get("wind", {}).get("speed", 3.0)
+                # Convert wind speed from m/s to km/h (1 m/s = 3.6 km/h)
+                current_wind = round(current_wind_mps * 3.6, 1)
+            else:
+                logger.warning(f"Failed to fetch current weather for {location}: {current_response.status_code}. Using fallbacks.")
+                current_temp = 28.0
+                current_humidity = 60.0
+                current_wind = 12.0
+                resolved_name = f"{location} (Default Location)"
+
+            # 2. Fetch 5-day / 3-hour forecast using coordinates
+            forecast_url = "https://api.openweathermap.org/data/2.5/forecast"
+            forecast_response = await client.get(
+                forecast_url,
+                params={"lat": lat, "lon": lon, "appid": api_key, "units": "metric"}
+            )
+            
+            if forecast_response.status_code == 200:
+                forecast_data = forecast_response.json()
                 
-                # Forecast formatting (7 days)
+                # Group forecast items by calendar date
+                daily_groups = {}
+                for item in forecast_data.get("list", []):
+                    dt_txt = item.get("dt_txt", "")
+                    if not dt_txt:
+                        continue
+                    date_str = dt_txt.split(" ")[0]  # Get date portion "YYYY-MM-DD"
+                    
+                    temp_min = item.get("main", {}).get("temp_min", current_temp)
+                    temp_max = item.get("main", {}).get("temp_max", current_temp)
+                    pop = item.get("pop", 0.0)  # Probability of precipitation (0 to 1)
+                    wind_speed = item.get("wind", {}).get("speed", 0.0)
+                    
+                    if date_str not in daily_groups:
+                        daily_groups[date_str] = {
+                            "temp_min": temp_min,
+                            "temp_max": temp_max,
+                            "rain_probability": pop,
+                            "wind_speed_max": wind_speed
+                        }
+                    else:
+                        daily_groups[date_str]["temp_min"] = min(daily_groups[date_str]["temp_min"], temp_min)
+                        daily_groups[date_str]["temp_max"] = max(daily_groups[date_str]["temp_max"], temp_max)
+                        daily_groups[date_str]["rain_probability"] = max(daily_groups[date_str]["rain_probability"], pop)
+                        daily_groups[date_str]["wind_speed_max"] = max(daily_groups[date_str]["wind_speed_max"], wind_speed)
+                
+                # Format forecast to match the frontend expectations
                 forecast = []
-                days = daily.get("time", [])
-                temp_max = daily.get("temperature_2m_max", [])
-                temp_min = daily.get("temperature_2m_min", [])
-                rain_prob = daily.get("precipitation_probability_max", [])
-                wind_max = daily.get("wind_speed_10m_max", [])
-                
-                for idx in range(min(7, len(days))):
+                for d_str, val in sorted(daily_groups.items())[:7]:  # Limit to 7 days max
                     forecast.append({
-                        "date": days[idx],
-                        "temp_max": temp_max[idx] if idx < len(temp_max) else 30.0,
-                        "temp_min": temp_min[idx] if idx < len(temp_min) else 20.0,
-                        "rain_probability": rain_prob[idx] if idx < len(rain_prob) else 10,
-                        "wind_speed_max": wind_max[idx] if idx < len(wind_max) else 15.0
+                        "date": d_str,
+                        "temp_max": round(val["temp_max"], 1),
+                        "temp_min": round(val["temp_min"], 1),
+                        "rain_probability": int(val["rain_probability"] * 100),
+                        "wind_speed_max": round(val["wind_speed_max"] * 3.6, 1)  # Convert to km/h
                     })
                 
-                # Check for rain warning in the next 2 days
-                rain_chance_tomorrow = forecast[1]["rain_probability"] if len(forecast) > 1 else 0
+                # Extract rain probability for today and tomorrow to calculate warnings
                 rain_chance_today = forecast[0]["rain_probability"] if len(forecast) > 0 else 0
-                has_rain_warning = rain_chance_tomorrow > 60 or rain_chance_today > 60
+                rain_chance_tomorrow = forecast[1]["rain_probability"] if len(forecast) > 1 else 0
+                has_rain_warning = rain_chance_today > 60 or rain_chance_tomorrow > 60
                 
-                # Build simple indicators for UI
                 rain_probability = max(rain_chance_today, rain_chance_tomorrow)
                 
-                # Recommended action rules
+                # Recommended action rules (same as original code)
                 rec_action = "Standard irrigation and crop monitoring."
                 if rain_probability > 70:
                     rec_action = "Heavy rain expected. Delay fertilizer application and avoid irrigation."
@@ -108,10 +115,11 @@ async def get_weather_data(location: str) -> Dict[str, Any]:
                     "recommended_action": rec_action,
                     "forecast": forecast
                 }
+            
     except Exception as e:
         logger.error(f"Weather API fetch failed: {str(e)}")
         
-    # Standard static fallback if api fails
+    # Standard static fallback if API fails
     return {
         "location_name": f"{location} (Offline Mode)",
         "latitude": lat,
@@ -132,3 +140,4 @@ async def get_weather_data(location: str) -> Dict[str, Any]:
             {"date": "Day 7", "temp_max": 32.0, "temp_min": 22.0, "rain_probability": 30, "wind_speed_max": 14.0}
         ]
     }
+
