@@ -212,5 +212,10 @@
   "severityLevelLabel": "Severity Level:",
   "Moderate": "Moderate",
   "High": "High",
-  "Low": "Low"
+  "Low": "Low",
+  "uploadTab": "Upload Photo",
+  "cameraTab": "Live Camera",
+  "takeSnapshot": "Capture Photo",
+  "cameraError": "Unable to access camera. Please use File Upload instead.",
+  "startCamera": "Start Camera"
 }

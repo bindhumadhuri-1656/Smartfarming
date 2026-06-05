@@ -61,8 +61,15 @@ export default function VoiceAssistant() {
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const handleSubmitRef = useRef<any>(null);
+
+  // Sync handleSubmit callback to a ref to avoid stale closures in event listeners
+  useEffect(() => {
+    handleSubmitRef.current = handleSubmit;
+  });
 
   useEffect(() => {
+    let recog: any = null;
     if (typeof window !== "undefined") {
       synthRef.current = window.speechSynthesis;
       
@@ -70,7 +77,7 @@ export default function VoiceAssistant() {
         (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       
       if (SpeechRecognition) {
-        const recog = new SpeechRecognition();
+        recog = new SpeechRecognition();
         recog.continuous = false;
         recog.interimResults = false;
         
@@ -96,12 +103,24 @@ export default function VoiceAssistant() {
         recog.onresult = (event: any) => {
           const speechToText = event.results[0][0].transcript;
           setInputText(speechToText);
-          handleSubmit(speechToText);
+          if (handleSubmitRef.current) {
+            handleSubmitRef.current(speechToText);
+          }
         };
         
         recognitionRef.current = recog;
       }
     }
+
+    return () => {
+      if (recog) {
+        try {
+          recog.abort();
+        } catch (e) {
+          // ignore
+        }
+      }
+    };
   }, [language]);
 
   // Scroll to bottom on new messages
@@ -115,7 +134,7 @@ export default function VoiceAssistant() {
       English: "Hello! I am AgriPilot. How can I help you on the farm today?",
       Telugu: "నమస్కారం! నేను అగ్రిపైలట్. ఈరోజు నేను మీకు ఎలా సహాయపడగలను?",
       Hindi: "नमस्कार! मैं एग्रीपायलट हूँ। आज मैं आपकी क्या सहायता कर सकता हूँ?",
-      Tamil: "வணக்கம்! நான் அக்ரிபைலட். இன்று உங்களுக்கு நான் எப்படி உதவ முடியும்?",
+      Tamil: "வணக்கம்! நான் అక్రిపైలట్. இன்று உங்களுக்கு நான் எப்படி உதவ முடியும்?",
       Kannada: "ನಮಸ್ಕಾರ! ನಾನು ಅಗ್ರಿಪೈಲಟ್. ಇಂದು ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?"
     };
     setMessages([{ role: "assistant", text: greetings[language] || greetings["English"] }]);
@@ -130,6 +149,11 @@ export default function VoiceAssistant() {
         return;
       }
       
+      // Stop speech synthesis if it is currently speaking to prevent double audio/loops
+      if (synthRef.current) {
+        synthRef.current.cancel();
+      }
+      
       recognitionRef.current.lang = voiceLocales[language] || "en-US";
       try {
         recognitionRef.current.start();
@@ -141,6 +165,15 @@ export default function VoiceAssistant() {
 
   const speakText = (text: string) => {
     if (isMuted || !synthRef.current) return;
+    
+    // Stop listening before starting speech synthesis to prevent feedback loop (hearing itself)
+    if (recognitionRef.current && isListening) {
+      try {
+        recognitionRef.current.abort();
+      } catch (e) {
+        console.error(e);
+      }
+    }
     
     // Cancel any current utterance
     synthRef.current.cancel();
@@ -177,6 +210,9 @@ export default function VoiceAssistant() {
       content: m.text
     }));
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: "POST",
@@ -188,7 +224,10 @@ export default function VoiceAssistant() {
           language: language,
           history: historyFormat.slice(-6) // Send last 3 rounds for context
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) throw new Error("Server communication failed.");
 
@@ -198,8 +237,11 @@ export default function VoiceAssistant() {
       setMessages((prev) => [...prev, { role: "assistant", text: aiReply }]);
       speakText(aiReply);
     } catch (e: any) {
+      clearTimeout(timeoutId);
       console.error(e);
-      const errReply = t("networkError");
+      const errReply = e.name === "AbortError" 
+        ? "AgriPilot connection timed out. Please try again." 
+        : t("networkError");
       setMessages((prev) => [...prev, { role: "assistant", text: errReply }]);
     } finally {
       setIsLoading(false);

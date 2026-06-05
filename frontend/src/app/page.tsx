@@ -31,7 +31,8 @@ import {
   HelpCircle,
   Play,
   Sparkles,
-  Mic
+  Mic,
+  Send
 } from "lucide-react";
 
 // Map ActivePage values to camelCase locale keys
@@ -75,6 +76,13 @@ export default function Dashboard() {
   const [scanLoading, setScanLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Camera scanning states
+  const [activeScanMethod, setActiveScanMethod] = useState<"upload" | "camera">("upload");
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
   // Crop recommendation states
   const [recommendationResult, setRecommendationResult] = useState<any[]>([]);
   const [recommendationLoading, setRecommendationLoading] = useState(false);
@@ -86,6 +94,17 @@ export default function Dashboard() {
     { id: 3, text: "Examine leaves for yellow spots in greenhouse", done: false, priority: "Medium" },
     { id: 4, text: "Sell harvested tomatoes at Madanapalle Market", done: false, priority: "Low" },
   ]);
+
+  // Chatbot states
+  const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [chatInputText, setChatInputText] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  // Sync scroll to bottom in inline chat
+  useEffect(() => {
+    chatScrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
 
   // Fetch weather and market data on load / location change / language change
   useEffect(() => {
@@ -193,6 +212,10 @@ export default function Dashboard() {
   const handleCropRecommendation = async (e: React.FormEvent) => {
     e.preventDefault();
     setRecommendationLoading(true);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
+
     try {
       const res = await fetch(`${API_BASE_URL}/api/crop-recommendation`, {
         method: "POST",
@@ -205,20 +228,32 @@ export default function Dashboard() {
           experience: farmState.experience,
           language: language,
         }),
+        signal: controller.signal,
       });
-      if (res.ok) {
-        const data = await res.json();
-        setRecommendationResult(data);
-        // Automatically set the top recommended crop as the active crop
-        if (data.length > 0) {
-          updateFarmState({
-            activeCrop: data[0].crop_name,
-            expectedProfit: data[0].expected_profit,
-          });
-        }
+
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        throw new Error(`HTTP error! Status: ${res.status}`);
       }
-    } catch (e) {
-      console.error(e);
+
+      const data = await res.json();
+      setRecommendationResult(data);
+      // Automatically set the top recommended crop as the active crop
+      if (data.length > 0) {
+        updateFarmState({
+          activeCrop: data[0].crop_name,
+          expectedProfit: data[0].expected_profit,
+        });
+      }
+    } catch (e: any) {
+      clearTimeout(timeoutId);
+      console.error("Crop recommendation failed:", e);
+      if (e.name === "AbortError") {
+        alert("Request timed out. The Render server might be spinning up. Please try again in a moment.");
+      } else {
+        alert("Failed to get crop recommendation. Please verify backend connection.");
+      }
     } finally {
       setRecommendationLoading(false);
     }
@@ -237,6 +272,78 @@ export default function Dashboard() {
     }
   };
 
+  const startCamera = async () => {
+    setCameraError(null);
+    setIsCameraActive(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" }
+      });
+      setCameraStream(stream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(err => console.error("Error playing video:", err));
+      }
+    } catch (err: any) {
+      console.error("Camera access error:", err);
+      setCameraError(t("cameraError"));
+      setIsCameraActive(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      setCameraStream(null);
+    }
+    setIsCameraActive(false);
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      const video = videoRef.current;
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg");
+        setImagePreview(dataUrl);
+        
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const file = new File([blob], "crop_capture.jpg", { type: "image/jpeg" });
+            setSelectedImage(file);
+          }
+        }, "image/jpeg", 0.95);
+
+        setScanResult(null);
+        stopCamera();
+      }
+    }
+  };
+
+  // Manage camera lifecycle based on page and scan method changes
+  useEffect(() => {
+    if (activePage === "Disease Scanner" && activeScanMethod === "camera" && !imagePreview) {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+  }, [activePage, activeScanMethod, imagePreview]);
+
+  // Clean up on component unmount
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [cameraStream]);
+
+
   const handleDiseaseScan = async () => {
     if (!selectedImage) return;
     setScanLoading(true);
@@ -244,28 +351,43 @@ export default function Dashboard() {
     formData.append("file", selectedImage);
     formData.append("language", language);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 35000); // 35 seconds (images take longer)
+
     try {
       const res = await fetch(`${API_BASE_URL}/api/disease-detection`, {
         method: "POST",
         body: formData,
+        signal: controller.signal,
       });
-      if (res.ok) {
-        const data = await res.json();
-        setScanResult(data);
-        
-        // Update top bar disease alert status if disease is found
-        if (data.disease_name && !data.disease_name.toLowerCase().includes("healthy")) {
-          updateFarmState({
-            riskAlert: `${data.severity} Risk: ${data.disease_name}`,
-          });
-        } else {
-          updateFarmState({
-            riskAlert: "Healthy crop condition",
-          });
-        }
+
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        throw new Error(`HTTP error! Status: ${res.status}`);
       }
-    } catch (e) {
-      console.error(e);
+
+      const data = await res.json();
+      setScanResult(data);
+      
+      // Update top bar disease alert status if disease is found
+      if (data.disease_name && !data.disease_name.toLowerCase().includes("healthy")) {
+        updateFarmState({
+          riskAlert: `${data.severity} Risk: ${data.disease_name}`,
+        });
+      } else {
+        updateFarmState({
+          riskAlert: "Healthy crop condition",
+        });
+      }
+    } catch (e: any) {
+      clearTimeout(timeoutId);
+      console.error("Disease scan failed:", e);
+      if (e.name === "AbortError") {
+        alert("Image upload timed out. The server took too long to analyze the image.");
+      } else {
+        alert("Failed to analyze crop disease. Please verify backend connection.");
+      }
     } finally {
       setScanLoading(false);
     }
@@ -275,6 +397,72 @@ export default function Dashboard() {
     setTasks(
       tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t))
     );
+  };
+
+  // Translate chat greeting when language changes
+  useEffect(() => {
+    const greetings: Record<string, string> = {
+      English: "Hello! I am AgriPilot. How can I help you on the farm today?",
+      Telugu: "నమస్కారం! నేను అగ్రిపైలట్. ఈరోజు నేను మీకు ఎలా సహాయపడగలను?",
+      Hindi: "नमस्कार! मैं एग्रीपायलट हूँ। आज मैं आपकी क्या सहायता कर सकता हूँ?",
+      Tamil: "வணக்கம்! నేను అక్రిపైలట్. இன்று உங்களுக்கு நான் எப்படி உதவ முடியும்?",
+      Kannada: "ನಮಸ್ಕಾರ! ನಾನು ಅಗ್ರಿಪೈಲಟ್. ಇಂದು ನಾನು ನಿಮಗೆ ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?"
+    };
+    setChatMessages([{ role: "assistant", text: greetings[language] || greetings["English"] }]);
+  }, [language]);
+
+  const handleChatSubmit = async (e?: React.FormEvent, textToSend?: string) => {
+    if (e) e.preventDefault();
+    const query = textToSend || chatInputText;
+    if (!query.trim()) return;
+
+    setChatMessages((prev) => [...prev, { role: "user", text: query }]);
+    setChatInputText("");
+    setChatLoading(true);
+
+    const historyFormat = chatMessages.map((m) => ({
+      role: m.role === "user" ? "user" : "model",
+      content: m.text,
+    }));
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: query,
+          language: language,
+          history: historyFormat.slice(-6),
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setChatMessages((prev) => [...prev, { role: "assistant", text: data.response }]);
+        
+        // Optional: Speak response
+        if (typeof window !== "undefined" && window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+          const cleanText = data.response.replace(/[🌱🌾💰☔📅⚠🏠📷☁🎤🏛⚙↑↓→*#`[\]()]/g, "").trim();
+          const utterance = new SpeechSynthesisUtterance(cleanText);
+          const voiceLocales: Record<string, string> = {
+            English: "en-US", Telugu: "te-IN", Hindi: "hi-IN", Tamil: "ta-IN", Kannada: "kn-IN"
+          };
+          utterance.lang = voiceLocales[language] || "en-US";
+          window.speechSynthesis.speak(utterance);
+        }
+      } else {
+        throw new Error("API failed");
+      }
+    } catch (err) {
+      console.error(err);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: "Sorry, I am having trouble connecting to the server. Please try again." },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
   };
 
   return (
@@ -810,41 +998,150 @@ export default function Dashboard() {
                     </p>
                   </div>
 
-                  {/* Image Preview Container */}
-                  <div
-                    onClick={() => fileInputRef.current?.click()}
-                    className={`h-64 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-4 cursor-pointer transition-all ${
-                      imagePreview
-                        ? "border-emerald-600 bg-black/30"
-                        : "border-emerald-900/60 bg-[#02130c]/40 hover:bg-[#031d12]/50 hover:border-emerald-700"
-                    }`}
-                  >
-                    {imagePreview ? (
-                      <div className="relative w-full h-full">
-                        <img
-                          src={imagePreview}
-                          alt="Crop leaf preview"
-                          className="w-full h-full object-contain rounded-xl"
-                        />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
-                          <p className="text-xs font-bold text-white bg-emerald-600 px-3 py-1.5 rounded-lg">{t("changeImage")}</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <Upload className="h-10 w-10 text-emerald-500 mb-2.5 animate-pulse" />
-                        <p className="text-sm font-bold text-emerald-200">{t("clickToUpload")}</p>
-                        <p className="text-[10px] text-emerald-600/70 mt-1">{t("uploadFormat")}</p>
-                      </>
-                    )}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="hidden"
-                    />
+                  {/* Selector Toggle */}
+                  <div className="flex bg-[#02130c]/80 border border-emerald-950/80 p-1.25 rounded-2xl mb-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveScanMethod("upload");
+                        setSelectedImage(null);
+                        setImagePreview(null);
+                        setScanResult(null);
+                      }}
+                      className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeScanMethod === "upload"
+                          ? "bg-emerald-600 text-white shadow-lg"
+                          : "text-emerald-100/50 hover:text-emerald-200"
+                      }`}
+                    >
+                      {t("uploadTab")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveScanMethod("camera");
+                        setSelectedImage(null);
+                        setImagePreview(null);
+                        setScanResult(null);
+                      }}
+                      className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeScanMethod === "camera"
+                          ? "bg-emerald-600 text-white shadow-lg"
+                          : "text-emerald-100/50 hover:text-emerald-200"
+                      }`}
+                    >
+                      {t("cameraTab")}
+                    </button>
                   </div>
+
+                  {activeScanMethod === "upload" ? (
+                    /* Image Preview Container (Upload) */
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className={`h-64 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-4 cursor-pointer transition-all ${
+                        imagePreview
+                          ? "border-emerald-600 bg-black/30"
+                          : "border-emerald-900/60 bg-[#02130c]/40 hover:bg-[#031d12]/50 hover:border-emerald-700"
+                      }`}
+                    >
+                      {imagePreview ? (
+                        <div className="relative w-full h-full">
+                          <img
+                            src={imagePreview}
+                            alt="Crop leaf preview"
+                            className="w-full h-full object-contain rounded-xl"
+                          />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
+                            <p className="text-xs font-bold text-white bg-emerald-600 px-3 py-1.5 rounded-lg">{t("changeImage")}</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <Upload className="h-10 w-10 text-emerald-500 mb-2.5 animate-pulse" />
+                          <p className="text-sm font-bold text-emerald-200">{t("clickToUpload")}</p>
+                          <p className="text-[10px] text-emerald-600/70 mt-1">{t("uploadFormat")}</p>
+                        </>
+                      )}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                    </div>
+                  ) : (
+                    /* Live Camera View */
+                    <div className="h-64 rounded-2xl border-2 border-emerald-900 bg-[#02130c]/40 overflow-hidden flex flex-col items-center justify-center relative">
+                      {imagePreview ? (
+                        <div className="relative w-full h-full">
+                          <img
+                            src={imagePreview}
+                            alt="Crop leaf preview"
+                            className="w-full h-full object-contain rounded-xl"
+                          />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedImage(null);
+                                setImagePreview(null);
+                                setScanResult(null);
+                              }}
+                              className="text-xs font-bold text-white bg-emerald-600 px-3 py-1.5 rounded-lg cursor-pointer"
+                            >
+                              {t("takeSnapshot")}
+                            </button>
+                          </div>
+                        </div>
+                      ) : cameraError ? (
+                        <div className="p-4 text-center space-y-3">
+                          <p className="text-xs font-bold text-red-400">{cameraError}</p>
+                          <button
+                            type="button"
+                            onClick={startCamera}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-xs font-bold text-white transition-colors cursor-pointer"
+                          >
+                            {t("startCamera")}
+                          </button>
+                        </div>
+                      ) : !isCameraActive ? (
+                        <div className="text-center p-4 space-y-3">
+                          <Camera className="h-10 w-10 text-emerald-500 mx-auto animate-pulse" />
+                          <p className="text-xs font-bold text-emerald-200">Camera is ready</p>
+                          <button
+                            type="button"
+                            onClick={startCamera}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-xs font-bold text-white transition-colors cursor-pointer"
+                          >
+                            {t("startCamera")}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="relative w-full h-full">
+                          <video
+                            ref={videoRef}
+                            autoPlay
+                            playsInline
+                            className="w-full h-full object-cover rounded-2xl"
+                          />
+                          {/* Scanline Animation Overlay */}
+                          <div className="absolute inset-x-0 top-0 h-0.5 bg-emerald-400 opacity-60 animate-scanline pointer-events-none" />
+                          
+                          {/* Capture button overlay */}
+                          <div className="absolute bottom-4 inset-x-0 flex justify-center">
+                            <button
+                              type="button"
+                              onClick={capturePhoto}
+                              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-xs font-bold text-white shadow-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <Camera className="h-4 w-4" /> {t("takeSnapshot")}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex gap-3">
                     <button
@@ -1093,41 +1390,100 @@ export default function Dashboard() {
           {/* TAB 6: ASK AGRIPILOT */}
           {activePage === "Ask AgriPilot" && (
             <div className="max-w-4xl mx-auto space-y-6">
-              
-              <div className="glass-panel p-6 rounded-3xl space-y-4">
-                <div className="flex items-center gap-3 border-b border-emerald-950 pb-4">
-                  <div className="h-10 w-10 rounded-xl bg-emerald-600 flex items-center justify-center">
-                    <Brain className="h-6 w-6 text-white" />
+              <div className="glass-panel rounded-3xl overflow-hidden shadow-2xl flex flex-col h-[65vh] border border-emerald-800/20">
+                {/* Header */}
+                <div className="px-6 py-4 border-b border-emerald-950 flex items-center justify-between bg-[#042c1d]/35">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-950/20">
+                      <Brain className="h-5.5 w-5.5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-base text-emerald-200">{t("consultTitle")}</h3>
+                      <p className="text-[11px] text-emerald-500">{t("consultDesc")}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-lg text-emerald-200">{t("consultTitle")}</h3>
-                    <p className="text-xs text-emerald-100/40">{t("consultDesc")}</p>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-emerald-950/20 border border-emerald-900/40 rounded-2xl text-sm leading-relaxed text-emerald-200">
-                  <p className="font-bold mb-1 text-emerald-100">{t("tipsTitle")}</p>
-                  <ul className="list-disc pl-5 space-y-1 text-xs">
-                    <li>{t("tip1")}</li>
-                    <li>{t("tip2")}</li>
-                  </ul>
-                </div>
-
-                <div className="flex justify-center py-8">
                   <button
                     onClick={() => {
-                      // Click assistant trigger
                       const button = document.querySelector(".fixed.bottom-6.right-6") as HTMLButtonElement;
                       if (button) button.click();
                     }}
-                    className="flex items-center gap-3 px-8 py-5.5 rounded-full bg-emerald-600 hover:bg-emerald-500 font-bold text-white shadow-xl shadow-emerald-950/80 cursor-pointer animate-pulse transition-all"
+                    className="flex items-center gap-1.5 px-4 py-2 border border-emerald-800/40 rounded-xl text-xs font-semibold text-emerald-400 hover:text-white hover:bg-emerald-950/40 transition-colors cursor-pointer"
                   >
-                    <Mic className="h-6.5 w-6.5" />
-                    <span>{t("startVoiceButton")}</span>
+                    <Mic className="h-3.5 w-3.5" /> {t("voiceAssistantButton") || "Voice Assistant"}
                   </button>
                 </div>
-              </div>
 
+                {/* Messages list */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-0 bg-[#020e09]/20">
+                  {chatMessages.map((msg, index) => (
+                    <div
+                      key={index}
+                      className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                    >
+                      <div
+                        className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm leading-relaxed shadow-sm ${
+                          msg.role === "user"
+                            ? "bg-emerald-600 text-white rounded-br-none"
+                            : "bg-[#04281a] border border-emerald-900/30 text-emerald-100 rounded-bl-none"
+                        }`}
+                      >
+                        {msg.text}
+                      </div>
+                    </div>
+                  ))}
+                  {chatLoading && (
+                    <div className="flex justify-start">
+                      <div className="bg-[#04281a] border border-emerald-900/30 text-emerald-400 rounded-2xl rounded-bl-none px-5 py-3 flex items-center gap-2">
+                        <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                        <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                        <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full animate-bounce"></span>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={chatScrollRef} />
+                </div>
+
+                {/* Quick Prompts list */}
+                <div className="px-6 py-3.5 border-t border-emerald-950 bg-[#021810]/20 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => handleChatSubmit(undefined, t("Which crop should I grow?") || "Which crop should I grow?")}
+                    className="text-xs px-3 py-1.5 rounded-full bg-emerald-950/30 border border-emerald-900/30 text-emerald-300 hover:text-white hover:bg-emerald-900/40 transition-colors cursor-pointer"
+                  >
+                    "{t("Which crop should I grow?") || "Which crop should I grow?"}"
+                  </button>
+                  <button
+                    onClick={() => handleChatSubmit(undefined, t("Will it rain tomorrow?") || "Will it rain tomorrow?")}
+                    className="text-xs px-3 py-1.5 rounded-full bg-emerald-950/30 border border-emerald-900/30 text-emerald-300 hover:text-white hover:bg-emerald-900/40 transition-colors cursor-pointer"
+                  >
+                    "{t("Will it rain tomorrow?") || "Will it rain tomorrow?"}"
+                  </button>
+                  <button
+                    onClick={() => handleChatSubmit(undefined, t("What is today's tomato price?") || "What is today's tomato price?")}
+                    className="text-xs px-3 py-1.5 rounded-full bg-emerald-950/30 border border-emerald-900/30 text-emerald-300 hover:text-white hover:bg-emerald-900/40 transition-colors cursor-pointer"
+                  >
+                    "{t("What is today's tomato price?") || "What is today's tomato price?"}"
+                  </button>
+                </div>
+
+                {/* Message input */}
+                <form onSubmit={handleChatSubmit} className="p-4 border-t border-emerald-950 bg-[#04261a]/30 flex items-center gap-3">
+                  <input
+                    type="text"
+                    value={chatInputText}
+                    onChange={(e) => setChatInputText(e.target.value)}
+                    placeholder={t("askPlaceholder") || "Ask AgriPilot a question..."}
+                    className="flex-1 bg-[#02130c] border border-emerald-900/50 rounded-xl px-4 py-3 text-sm text-emerald-100 placeholder-emerald-700 focus:outline-none"
+                    disabled={chatLoading}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!chatInputText.trim() || chatLoading}
+                    className="p-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:hover:bg-emerald-600 text-white rounded-xl shadow-lg transition-colors cursor-pointer flex items-center justify-center"
+                  >
+                    <Send className="h-4.5 w-4.5" />
+                  </button>
+                </form>
+              </div>
             </div>
           )}
 

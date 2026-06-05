@@ -212,5 +212,10 @@
   "severityLevelLabel": "तीव्रता स्तर:",
   "Moderate": "मध्यम",
   "High": "उच्च",
-  "Low": "निम्न"
+  "Low": "निम्न",
+  "uploadTab": "फोटो अपलोड",
+  "cameraTab": "लाइव कैमरा",
+  "takeSnapshot": "फोटो खींचें",
+  "cameraError": "कैमरा खोलने में असमर्थ। कृपया फोटो अपलोड का उपयोग करें।",
+  "startCamera": "कैमरा चालू करें"
 }

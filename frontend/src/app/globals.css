@@ -123,3 +123,18 @@ input:focus, select:focus, textarea:focus {
   border-color: #10b981;
   box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
 }
+
+/* Scanline Animation for Camera */
+@keyframes scanline {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(256px); /* matches camera height h-64 */
+  }
+}
+
+.animate-scanline {
+  animation: scanline 3s linear infinite;
+}
+

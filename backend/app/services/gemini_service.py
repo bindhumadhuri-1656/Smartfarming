@@ -39,7 +39,7 @@ You must write your response in the language requested by the user. If they ask 
 """
 
 def get_model(model_name: str = "gemini-2.5-flash") -> genai.GenerativeModel:
-    """Helper to load a GenerativeModel with a fallback to gemini-1.5-flash if 2.5 is unavailable or errors out."""
+    """Helper to load a GenerativeModel with a fallback to gemini-2.0-flash if 2.5 is unavailable or errors out."""
     try:
         # Check if API key is set, if not, try reading from env again in case it was loaded late
         current_key = os.environ.get("GEMINI_API_KEY", "")
@@ -51,9 +51,9 @@ def get_model(model_name: str = "gemini-2.5-flash") -> genai.GenerativeModel:
             system_instruction=SYSTEM_PROMPT
         )
     except Exception as e:
-        logger.warning(f"Failed to load {model_name}: {str(e)}. Falling back to gemini-1.5-flash.")
+        logger.warning(f"Failed to load {model_name}: {str(e)}. Falling back to gemini-2.0-flash.")
         return genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
+            model_name="gemini-2.0-flash",
             system_instruction=SYSTEM_PROMPT
         )
 
@@ -65,9 +65,25 @@ async def generate_chat_response(message: str, language: str, chat_history: Opti
         # Prepare contents including history if available
         contents = []
         if chat_history:
+            started = False
+            last_role = None
             for turn in chat_history:
                 role = "user" if turn.get("role") == "user" else "model"
+                
+                # Gemini history must start with "user"
+                if not started:
+                    if role != "user":
+                        continue
+                    started = True
+                
+                # Gemini history must alternate "user" -> "model" -> "user"
+                if role == last_role:
+                    if contents:
+                        contents[-1]["parts"][0] += "\n" + turn.get("content", "")
+                    continue
+                
                 contents.append({"role": role, "parts": [turn.get("content", "")]})
+                last_role = role
         
         # Add the current message with language instruction
         lang_instruction = f" Respond in {language} language."
@@ -77,7 +93,7 @@ async def generate_chat_response(message: str, language: str, chat_history: Opti
         return response.text
     except Exception as e:
         logger.error(f"Error in generate_chat_response: {str(e)}")
-        # Return a simple mock fallback if API is not configured
+        # Return a simple mock fallback if API is not configured or fails
         fallback_msg = f"[Demo Mode] Here is AgriPilot. To help you with your query: '{message}' in {language}, please set up your GEMINI_API_KEY. Always irrigate timely and check soil moisture."
         return await translate_text(fallback_msg, language)
 
