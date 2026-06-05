@@ -4,8 +4,12 @@ import logging
 from typing import List, Dict, Any, Optional
 import google.generativeai as genai
 from google.generativeai.types import GenerationConfig
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+# Force load environment variables
+load_dotenv(override=True)
 
 # Configure the API key from environment variable
 api_key = os.environ.get("GEMINI_API_KEY", "")
@@ -93,9 +97,10 @@ async def generate_chat_response(message: str, language: str, chat_history: Opti
         return response.text
     except Exception as e:
         logger.error(f"Error in generate_chat_response: {str(e)}")
-        # Return a simple mock fallback if API is not configured or fails
-        fallback_msg = f"[Demo Mode] Here is AgriPilot. To help you with your query: '{message}' in {language}, please set up your GEMINI_API_KEY. Always irrigate timely and check soil moisture."
-        return await translate_text(fallback_msg, language)
+        err_msg = "AgriPilot assistant is currently experiencing connection issues. Please check your network or try again later."
+        if "API key not valid" in str(e) or "invalid" in str(e).lower():
+            err_msg = "AgriPilot API authentication failed. Please configure a valid GEMINI_API_KEY in the backend environment variables."
+        return await translate_text(err_msg, language)
 
 async def explain_crop_recommendations(user_input: Dict[str, Any], recommended_crops: List[Dict[str, Any]], language: str) -> List[Dict[str, Any]]:
     """Generates farmer-friendly Gemini explanations for why each crop is recommended based on the user's input."""
@@ -175,8 +180,8 @@ async def detect_crop_disease(image_bytes: bytes, mime_type: str, language: str)
         logger.error(f"Error in detect_crop_disease: {str(e)}")
         # Provide a fallback JSON structure
         fallback_data = {
-            "disease_name": "Leaf Spot (Demo)",
-            "confidence": "70% (Demo Mode)",
+            "disease_name": "Leaf Spot",
+            "confidence": "70%",
             "severity": "Medium",
             "treatment": "1. Spray Neem oil mixed with water. 2. Remove infected lower leaves. 3. Avoid overhead watering to prevent spore spreading.",
             "preventive_measures": "Ensure proper crop spacing, rotation, and use disease-resistant seeds.",

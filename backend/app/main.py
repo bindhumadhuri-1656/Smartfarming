@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 # Load environmental variables from .env file
-load_dotenv()
+load_dotenv(override=True)
 
 # Import routers
 from app.routes.crop import router as crop_router
