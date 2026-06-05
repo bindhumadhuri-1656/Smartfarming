@@ -1,0 +1,50 @@
+[
+  {
+    "crop": "Tomato",
+    "market": "Madanapalle Market",
+    "current_price": "₹3,200 / Quintal",
+    "trend": "Increasing",
+    "prediction": "Expected to rise by 10% next week due to wedding season demand.",
+    "best_selling_market": "Kolar Market (₹3,400 / Quintal)"
+  },
+  {
+    "crop": "Rice (Paddy)",
+    "market": "Nalgonda APMC",
+    "current_price": "₹2,300 / Quintal",
+    "trend": "Stable",
+    "prediction": "Prices will remain stable due to steady government procurement.",
+    "best_selling_market": "Nizamabad Market (₹2,450 / Quintal)"
+  },
+  {
+    "crop": "Chilli",
+    "market": "Guntur Chilli Yard",
+    "current_price": "₹18,500 / Quintal",
+    "trend": "Increasing",
+    "prediction": "Export demand is surging. Prices expected to break records.",
+    "best_selling_market": "Guntur Chilli Yard (₹19,000 / Quintal)"
+  },
+  {
+    "crop": "Cotton",
+    "market": "Adoni Cotton Market",
+    "current_price": "₹7,200 / Quintal",
+    "trend": "Decreasing",
+    "prediction": "Global supply pressure might pull down prices slightly next week.",
+    "best_selling_market": "Warangal Market (₹7,400 / Quintal)"
+  },
+  {
+    "crop": "Groundnut",
+    "market": "Kurnool APMC",
+    "current_price": "₹6,800 / Quintal",
+    "trend": "Stable",
+    "prediction": "Oil mill demand is consistent; prices expected to hold.",
+    "best_selling_market": "Anantapur Market (₹6,950 / Quintal)"
+  },
+  {
+    "crop": "Maize",
+    "market": "Karimnagar APMC",
+    "current_price": "₹2,100 / Quintal",
+    "trend": "Decreasing",
+    "prediction": "New harvest arrivals in neighboring states will cause a minor dip.",
+    "best_selling_market": "Davangere Market (₹2,250 / Quintal)"
+  }
+]

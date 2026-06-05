@@ -1,0 +1,37 @@
+[
+  {
+    "scheme_name": "PM-KISAN (Pradhan Mantri Kisan Samman Nidhi)",
+    "eligibility": "Small and marginal landholder farmer families with cultivable land holding up to 2 hectares in their name.",
+    "benefits": "Financial benefit of ₹6,000 per year in three equal installments of ₹2,000 every four months, transferred directly to bank accounts.",
+    "deadline": "Ongoing (Self-registration available anytime)",
+    "application_link": "https://pmkisan.gov.in"
+  },
+  {
+    "scheme_name": "PM Fasal Bima Yojana (Crop Insurance Scheme)",
+    "eligibility": "All farmers including sharecroppers and tenant farmers growing notified crops in notified areas.",
+    "benefits": "Low premium rates for farmers (1.5% to 2% for food & oilseed crops, 5% for commercial/horticultural crops) with full insurance coverage against natural calamities.",
+    "deadline": "July 31 for Kharif season, December 31 for Rabi season",
+    "application_link": "https://pmfby.gov.in"
+  },
+  {
+    "scheme_name": "Rythu Bandhu Scheme (Farmer's Investment Support Scheme)",
+    "eligibility": "Land-owning farmers in Telangana state.",
+    "benefits": "Financial assistance of ₹10,000 per acre per year (₹5,000 per acre per season for Kharif and Rabi) for purchasing agricultural inputs.",
+    "deadline": "Before commencement of each cropping season",
+    "application_link": "https://rythubandhu.telangana.gov.in"
+  },
+  {
+    "scheme_name": "Sub-Mission on Agricultural Mechanization (SMAM)",
+    "eligibility": "All categories of farmers. Priority is given to Small/Marginal, SC/ST, and Women farmers.",
+    "benefits": "40% to 50% subsidy for purchasing farm machinery like tractors, rotavators, power tillers, and harvesters.",
+    "deadline": "Varies by state (Usually applications open in April-May)",
+    "application_link": "https://agrimachinery.nic.in"
+  },
+  {
+    "scheme_name": "PM Krishi Sinchayee Yojana (Per Drop More Crop - Drip Irrigation)",
+    "eligibility": "All landholders, agricultural cooperatives, and members of water user associations.",
+    "benefits": "Up to 55% subsidy for small and marginal farmers and 45% for other farmers to install drip and sprinkler irrigation systems.",
+    "deadline": "Year-round applications accepted via state agriculture portals",
+    "application_link": "https://pmksy.gov.in"
+  }
+]
