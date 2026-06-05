@@ -9,4 +9,5 @@ if __name__ == "__main__":
     host = os.environ.get("HOST", "0.0.0.0")
     
     print(f"Starting AgriPilot AI Backend on http://{host}:{port}...")
-    uvicorn.run("app.main:app", host=host, port=port, reload=True)
+    is_dev = os.environ.get("ENVIRONMENT", "development").lower() == "development"
+    uvicorn.run("app.main:app", host=host, port=port, reload=is_dev)
