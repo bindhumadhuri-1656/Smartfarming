@@ -5,6 +5,7 @@ import { useApp, ActivePage, FarmState } from "@/context/AppContext";
 import Sidebar from "@/components/Sidebar";
 import LanguageSelector from "@/components/LanguageSelector";
 import VoiceAssistant from "@/components/VoiceAssistant";
+import { API_BASE_URL } from "@/config";
 import {
   Sprout,
   DollarSign,
@@ -97,7 +98,7 @@ export default function Dashboard() {
     setWeatherLoading(true);
     try {
       const res = await fetch(
-        `http://localhost:8000/api/weather?location=${encodeURIComponent(
+        `${API_BASE_URL}/api/weather?location=${encodeURIComponent(
           farmState.location
         )}&language=${language}`
       );
@@ -125,7 +126,7 @@ export default function Dashboard() {
   const fetchMarketPrices = async () => {
     setMarketLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/market-prices?language=${language}`);
+      const res = await fetch(`${API_BASE_URL}/api/market-prices?language=${language}`);
       if (res.ok) {
         const data = await res.json();
         setMarketPrices(data);
@@ -147,7 +148,7 @@ export default function Dashboard() {
   const fetchSchemes = async () => {
     setSchemesLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/government-schemes?language=${language}`);
+      const res = await fetch(`${API_BASE_URL}/api/government-schemes?language=${language}`);
       if (res.ok) {
         const data = await res.json();
         setSchemes(data);
@@ -163,7 +164,7 @@ export default function Dashboard() {
     setSchemeExplaining(schemeName);
     setSchemeExplanation("");
     try {
-      const res = await fetch(`http://localhost:8000/api/government-schemes/explain`, {
+      const res = await fetch(`${API_BASE_URL}/api/government-schemes/explain`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scheme_name: schemeName, language }),
@@ -193,7 +194,7 @@ export default function Dashboard() {
     e.preventDefault();
     setRecommendationLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/crop-recommendation`, {
+      const res = await fetch(`${API_BASE_URL}/api/crop-recommendation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -244,7 +245,7 @@ export default function Dashboard() {
     formData.append("language", language);
 
     try {
-      const res = await fetch(`http://localhost:8000/api/disease-detection`, {
+      const res = await fetch(`${API_BASE_URL}/api/disease-detection`, {
         method: "POST",
         body: formData,
       });

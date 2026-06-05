@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useApp } from "@/context/AppContext";
 import { Mic, MicOff, Send, X, Volume2, VolumeX, Sparkles, HelpCircle } from "lucide-react";
+import { API_BASE_URL } from "@/config";
 
 const voiceLocales: Record<string, string> = {
   English: "en-US",
@@ -177,7 +178,7 @@ export default function VoiceAssistant() {
     }));
 
     try {
-      const response = await fetch("http://localhost:8000/api/chat", {
+      const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
